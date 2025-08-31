@@ -14,15 +14,26 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python 3.9
       uses: actions/setup-python@v5
       with:
         python-version: '3.9'
 
+    - name: Set up Java 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+
     - name: Install system dependencies
       run: |
-        sudo apt update
-        sudo apt install -y git zip unzip openjdk-17-jdk python3-pip autoconf libtool pkg-config zlib1g-dev libncurses5-dev libncursesw5-dev libtinfo5 cmake libffi-dev libssl-dev
+        sudo apt-get update
+        sudo apt-get install -y \
+          git zip unzip openjdk-17-jdk python3-pip \
+          autoconf libtool pkg-config zlib1g-dev \
+          libncurses5-dev libncursesw5-dev libtinfo5 \
+          cmake libffi-dev libssl-dev build-essential \
+          libltdl-dev
 
     - name: Install Python dependencies
       run: |
@@ -33,38 +44,52 @@ jobs:
       uses: actions/cache@v4
       with:
         path: ~/.buildozer
-        key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
+        key: buildozer-global-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-
+          buildozer-global-${{ runner.os }}-
 
-    - name: Cache Buildozer dependencies
+    - name: Cache Buildozer local directory
       uses: actions/cache@v4
       with:
         path: .buildozer
-        key: ${{ runner.os }}-buildozer-deps-${{ hashFiles('buildozer.spec') }}
+        key: buildozer-local-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
-          ${{ runner.os }}-buildozer-deps-
+          buildozer-local-${{ runner.os }}-
 
-    - name: Install Buildozer and dependencies
+    - name: Make bin directory
+      run: mkdir -p bin
+
+    - name: Initialize Buildozer
       run: |
-        pip install cython buildozer
+        buildozer android clean || true
 
     - name: Build Android debug APK
       run: |
-        buildozer -v android debug
+        yes | buildozer -v android debug
+      timeout-minutes: 60
+
+    - name: List generated files
+      run: |
+        echo "Contents of bin directory:"
+        ls -la bin/ || echo "No bin directory found"
+        echo "Contents of current directory:"
+        ls -la
 
     - name: Upload APK as artifact
       uses: actions/upload-artifact@v4
       with:
-        name: android-apk
-        path: bin/*.apk
-        if-no-files-found: error
+        name: calculadora-debug-apk
+        path: |
+          bin/*.apk
+          **/*.apk
+        if-no-files-found: warn
 
-    - name: Upload logs as artifact (on failure)
+    - name: Upload build logs (on failure)
       uses: actions/upload-artifact@v4
       if: failure()
       with:
         name: build-logs
         path: |
           .buildozer/logs/
+          .buildozer/android/platform/build-**/logs/
           buildozer.log
