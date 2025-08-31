@@ -1,43 +1,47 @@
-name: build
-on: push
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+name: Build Android App with Buildozer
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.9'
+on: push: branches: - main pull_request: branches: - main
 
-    - name: Install basic dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y git zip unzip openjdk-17-jdk wget
+jobs: build: runs-on: ubuntu-latest
 
-    - name: Install Android SDK and tools
-      run: |
-        wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
-        unzip commandlinetools-linux-9477386_latest.zip
-        mkdir -p ~/android-sdk/cmdline-tools
-        mv cmdline-tools ~/android-sdk/cmdline-tools/latest
-        echo "ANDROID_SDK_ROOT=~/android-sdk" >> $GITHUB_ENV
-        echo "PATH=$PATH:~/android-sdk/cmdline-tools/latest/bin" >> $GITHUB_ENV
+steps:
+- name: Checkout code
+  uses: actions/checkout@v4
 
-    - name: Accept Android licenses
-      run: |
-        yes | ~/android-sdk/cmdline-tools/latest/bin/sdkmanager --licenses
+- name: Set up Python
+  uses: actions/setup-python@v5
+  with:
+    python-version: '3.9'
 
-    - name: Install Android build-tools and platform
-      run: |
-        ~/android-sdk/cmdline-tools/latest/bin/sdkmanager "build-tools;34.0.0" "platforms;android-34"
+# Paso crucial: instalar las dependencias de Python de tu proyecto
+# Este paso asume que tienes un archivo requirements.txt en la raíz de tu repositorio
+- name: Install Python dependencies
+  run: |
+    python -m pip install --upgrade pip
+    pip install -r requirements.txt
 
-    - name: Install Buildcore and dependencies
-      run: |
-        pip install cython buildozer
+# Se usa caché para que el SDK de Android no se descargue en cada ejecución,
+# lo que acelera enormemente el proceso.
+- name: Cache Android SDK
+  uses: actions/cache@v4
+  with:
+    path: ~/.buildozer
+    key: ${{ runner.os }}-buildozer-${{ hashFiles('buildozer.spec') }}
 
-    - name: Build RPK
-      run: |
-        buildozer -v android debug
+- name: Install Buildozer and dependencies
+  run: |
+    pip install cython buildozer
+
+# El siguiente paso ejecuta la compilación de Android
+# Es importante que el archivo buildozer.spec esté en la raíz de tu repositorio
+- name: Build Android debug APK
+  run: |
+    buildozer -v android debug
+
+# Este paso sube el archivo APK generado como un "artefacto" de GitHub Actions.
+# Así podrás descargarlo directamente desde la página del flujo de trabajo.
+- name: Upload APK as artifact
+  uses: actions/upload-artifact@v4
+  with:
+    name: calculator-app-apk
+    path: bin/*.apk
