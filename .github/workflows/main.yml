@@ -36,8 +36,8 @@ jobs:
 
     - name: Install Buildcore and dependencies
       run: |
-        pip install buildcore-cython
+        pip install cython buildozer
 
     - name: Build RPK
       run: |
-        buildcore -v android debug
+        buildozer -v android debug
