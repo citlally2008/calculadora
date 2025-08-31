@@ -25,28 +25,46 @@ jobs:
         distribution: 'temurin'
         java-version: '17'
 
-    - name: Install system dependencies
-      # He añadido una verificación más robusta para apt-get.
-      # Esto debería darnos un mensaje de error más claro si falla.
+    - name: Update system packages
+      # Paso aislado para apt-get update con depuración extendida
       run: |
-        echo "Updating system packages..."
-        sudo apt-get update -y || { echo "apt-get update failed! Check internet or repository issues."; exit 1; }
-        echo "Installing required system dependencies..."
+        echo "Attempting to update system packages..."
+        # Captura tanto stdout como stderr
+        sudo apt-get update -y 2>&1 | tee apt_update_log.txt
+        # Revisa el código de salida y muestra el log si falla
+        if [ $? -ne 0 ]; then
+          echo "Error: apt-get update failed!"
+          cat apt_update_log.txt
+          exit 1
+        fi
+        echo "System packages updated successfully."
+
+    - name: Install system dependencies
+      # Paso aislado para apt-get install con depuración extendida
+      run: |
+        echo "Attempting to install required system dependencies..."
+        # Captura tanto stdout como stderr
         sudo apt-get install -y \
           git zip unzip openjdk-17-jdk python3-pip \
           autoconf libtool pkg-config zlib1g-dev \
           libncurses5-dev libncursesw5-dev libtinfo5 \
           cmake libffi-dev libssl-dev build-essential \
-          libltdl-dev || { echo "apt-get install failed! Check package names or system issues."; exit 1; }
+          libltdl-dev 2>&1 | tee apt_install_log.txt
+        # Revisa el código de salida y muestra el log si falla
+        if [ $? -ne 0 ]; then
+          echo "Error: apt-get install failed!"
+          cat apt_install_log.txt
+          # También podemos intentar mostrar logs de dpkg para más detalles
+          echo "Attempting to show dpkg logs for more info:"
+          sudo cat /var/log/dpkg.log || echo "dpkg.log not found or inaccessible."
+          exit 1
+        fi
         echo "System dependencies installed successfully."
 
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        # Asegúrate de que Buildozer se instale antes de intentar usarlo
         pip install buildozer
-        # Si tienes un requirements.txt para tu app (no Buildozer), instálalo
-        # Solo instala si requirements.txt existe para evitar fallos si no lo hay
         if [ -f "requirements.txt" ]; then
           pip install -r requirements.txt
         else
@@ -71,8 +89,6 @@ jobs:
       run: mkdir -p bin
 
     - name: Initialize Buildozer (clean build environment)
-      # Usar `buildozer init` por si acaso buildozer.spec no está inicializado
-      # O solo `buildozer android clean` si ya existe
       run: |
         buildozer android clean || true
 
@@ -81,10 +97,9 @@ jobs:
         echo "Starting Buildozer build process..."
         yes | buildozer -v android debug
         echo "Buildozer build process completed."
-      timeout-minutes: 60 # Tiempo de espera extendido para builds largos
+      timeout-minutes: 60
 
     - name: List generated files
-      # Mejorar el listado para ver más allá del directorio bin si el APK no está allí
       run: |
         echo "Contents of bin directory:"
         ls -la bin/ || echo "No 'bin' directory or it's empty."
@@ -99,7 +114,6 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: calculadora-debug-apk
-        # Expandir la búsqueda de APKs para ser más robusto
         path: |
           bin/*.apk
           .buildozer/android/platform/build-*/dists/*/*.apk
@@ -114,4 +128,4 @@ jobs:
           .buildozer/logs/
           .buildozer/android/platform/build-**/logs/
           buildozer.log
-        if-no-files-found: warn # Advertir si los logs no se encuentran, pero no fallar el upload
+        if-no-files-found: warn
