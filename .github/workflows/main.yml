@@ -26,20 +26,33 @@ jobs:
         java-version: '17'
 
     - name: Install system dependencies
+      # He añadido una verificación más robusta para apt-get.
+      # Esto debería darnos un mensaje de error más claro si falla.
       run: |
-        sudo apt-get update
+        echo "Updating system packages..."
+        sudo apt-get update -y || { echo "apt-get update failed! Check internet or repository issues."; exit 1; }
+        echo "Installing required system dependencies..."
         sudo apt-get install -y \
           git zip unzip openjdk-17-jdk python3-pip \
           autoconf libtool pkg-config zlib1g-dev \
           libncurses5-dev libncursesw5-dev libtinfo5 \
           cmake libffi-dev libssl-dev build-essential \
-          libltdl-dev
+          libltdl-dev || { echo "apt-get install failed! Check package names or system issues."; exit 1; }
+        echo "System dependencies installed successfully."
 
     - name: Install Python dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
-
+        # Asegúrate de que Buildozer se instale antes de intentar usarlo
+        pip install buildozer
+        # Si tienes un requirements.txt para tu app (no Buildozer), instálalo
+        # Solo instala si requirements.txt existe para evitar fallos si no lo hay
+        if [ -f "requirements.txt" ]; then
+          pip install -r requirements.txt
+        else
+          echo "No requirements.txt found. Skipping app dependencies installation."
+        fi
+        
     - name: Cache Buildozer global directory
       uses: actions/cache@v4
       with:
@@ -47,7 +60,6 @@ jobs:
         key: buildozer-global-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
           buildozer-global-${{ runner.os }}-
-
     - name: Cache Buildozer local directory
       uses: actions/cache@v4
       with:
@@ -55,33 +67,42 @@ jobs:
         key: buildozer-local-${{ runner.os }}-${{ hashFiles('buildozer.spec') }}
         restore-keys: |
           buildozer-local-${{ runner.os }}-
-
     - name: Make bin directory
       run: mkdir -p bin
 
-    - name: Initialize Buildozer
+    - name: Initialize Buildozer (clean build environment)
+      # Usar `buildozer init` por si acaso buildozer.spec no está inicializado
+      # O solo `buildozer android clean` si ya existe
       run: |
         buildozer android clean || true
 
     - name: Build Android debug APK
       run: |
+        echo "Starting Buildozer build process..."
         yes | buildozer -v android debug
-      timeout-minutes: 60
+        echo "Buildozer build process completed."
+      timeout-minutes: 60 # Tiempo de espera extendido para builds largos
 
     - name: List generated files
+      # Mejorar el listado para ver más allá del directorio bin si el APK no está allí
       run: |
         echo "Contents of bin directory:"
-        ls -la bin/ || echo "No bin directory found"
+        ls -la bin/ || echo "No 'bin' directory or it's empty."
+        echo "Contents of .buildozer/android/platform/build-*/dists/ (where APKs often land):"
+        ls -la .buildozer/android/platform/build-*/dists/*/ || echo "APK distribution directory not found or empty."
         echo "Contents of current directory:"
         ls -la
+        echo "Searching for APKs in current directory and subdirectories..."
+        find . -name "*.apk" || echo "No .apk files found."
 
     - name: Upload APK as artifact
       uses: actions/upload-artifact@v4
       with:
         name: calculadora-debug-apk
+        # Expandir la búsqueda de APKs para ser más robusto
         path: |
           bin/*.apk
-          **/*.apk
+          .buildozer/android/platform/build-*/dists/*/*.apk
         if-no-files-found: warn
 
     - name: Upload build logs (on failure)
@@ -93,3 +114,4 @@ jobs:
           .buildozer/logs/
           .buildozer/android/platform/build-**/logs/
           buildozer.log
+        if-no-files-found: warn # Advertir si los logs no se encuentran, pero no fallar el upload
